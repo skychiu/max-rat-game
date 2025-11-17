@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Rat Trap Game</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+.game-cell{transition:all .3s ease}
+.rat{background:#8B4513;border-radius:50%;position:relative}
+.rat::before{content:'🐀';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px}
+.cheese{background:#FFD700;border-radius:15%;position:relative}
+.cheese::before{content:'🧀';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px}
+.trap{background:#DC2626;border-radius:10%;position:relative}
+.trap::before{content:'🪤';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:18px}
+.memory-danger{background:linear-gradient(45deg,transparent 40%,rgba(220,38,38,.3) 60%)}
+.memory-safe{background:linear-gradient(45deg,transparent 40%,rgba(34,197,94,.2) 60%)}
+.path-highlight{background:rgba(59,130,246,.4);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:.8}}
+</style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 min-h-screen p-4">
+<script>
+if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches){document.documentElement.classList.add('dark')}window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',e=>{if(e.matches){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}})
+</script>
+<div class="max-w-4xl mx-auto">
+<div class="text-center mb-6">
+<h1 class="text-4xl font-bold text-gray-800 dark:text-white mb-2">🐀 Smart Rat Trap Game</h1>
+<p class="text-gray-600 dark:text-gray-300">Set traps to catch the rat, but beware – it learns from every attempt.</p>
+</div>
+<div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+<div class="text-center">
+<div class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="score">0</div>
+<div class="text-sm text-gray-600 dark:text-gray-400">Score</div>
+</div>
+<div class="text-center">
+<div class="text-2xl font-bold text-red-600 dark:text-red-400" id="attempts">0</div>
+<div class="text-sm text-gray-600 dark:text-gray-400">Rat Attempts</div>
+</div>
+<div class="text-center">
+<div class="text-2xl font-bold text-purple-600 dark:text-purple-400" id="intelligence">Beginner</div>
+<div class="text-sm text-gray-600 dark:text-gray-400">AI Intelligence</div>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row justify-center gap-4 mb-6">
+<button id="placeTrapBtn" class="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">🪤 Place Traps</button>
+<button id="startBtn" class="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">🏁 Release the Rat</button>
+<button id="resetBtn" class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors">🔄 Reset Game</button>
+</div>
+<div class="mb-4">
+<div class="flex items-center justify-between">
+<div class="text-gray-700 dark:text-gray-300">Click cells to place traps while in trap mode.</div>
+<div class="text-gray-700 dark:text-gray-300">Traps placed: <span id="trapCount">0</span>/<span id="trapLimit">10</span></div>
+</div>
+</div>
+<div class="border rounded-lg overflow-hidden">
+<div id="gameBoard" class="grid bg-gray-50 dark:bg-gray-900" style="grid-template-columns: repeat(12,minmax(0,1fr));"></div>
+</div>
+</div>
+<div class="text-center text-sm text-gray-600 dark:text-gray-400">The rat avoids remembered danger and adapts over time.</div>
+</div>
+<script>
+const size=12
+const board=document.getElementById('gameBoard')
+const scoreEl=document.getElementById('score')
+const attemptsEl=document.getElementById('attempts')
+const intelEl=document.getElementById('intelligence')
+const placeBtn=document.getElementById('placeTrapBtn')
+const startBtn=document.getElementById('startBtn')
+const resetBtn=document.getElementById('resetBtn')
+const trapCountEl=document.getElementById('trapCount')
+const trapLimitEl=document.getElementById('trapLimit')
+let trapLimit=10
+let trapsPlaced=0
+let placeMode=false
+let running=false
+let score=0
+let attempts=0
+let rat={x:0,y:0}
+let cheese={x:size-1,y:size-1}
+let memory=new Map()
+let lastPath=[]
+let grid=[]
+function key(x,y){return x+','+y}
+function initGrid(){grid=Array.from({length:size},()=>Array.from({length:size},()=>({trap:false,path:false})));grid[rat.y][rat.x].trap=false;grid[cheese.y][cheese.x].trap=false}
+ function renderBoard(){board.innerHTML='';board.style.gridTemplateColumns=`repeat(${size},minmax(0,1fr))`;for(let y=0;y<size;y++){for(let x=0;x<size;x++){const cell=document.createElement('div');cell.className='relative w-8 h-8 sm:w-10 sm:h-10 border border-gray-200 dark:border-gray-700 game-cell cursor-pointer';cell.dataset.x=x;cell.dataset.y=y;const k=key(x,y);if(grid[y][x].trap)cell.classList.add('trap');if(rat.x===x&&rat.y===y)cell.classList.add('rat');if(cheese.x===x&&cheese.y===y)cell.classList.add('cheese');if(memory.has(k))cell.classList.add('memory-danger');if(lastPath.find(p=>p.x===x&&p.y===y))cell.classList.add('memory-safe');cell.addEventListener('click',()=>onCellClick(x,y));board.appendChild(cell)}}}
+ function onCellClick(x,y){if(running)return;if(rat.x===x&&rat.y===y)return;if(cheese.x===x&&cheese.y===y)return;const v=grid[y][x].trap;if(!v&&trapsPlaced>=trapLimit)return;grid[y][x].trap=!v;trapsPlaced+=grid[y][x].trap?1:-1;trapCountEl.textContent=String(trapsPlaced);renderBoard()}
+function togglePlace(){placeMode=!placeMode;placeBtn.classList.toggle('ring-2');placeBtn.classList.toggle('ring-red-300')}
+function weightFor(x,y){const k=key(x,y);const base=memory.get(k)||0;const factor=intelligenceFactor();return base*factor}
+function intelligenceFactor(){const c=Math.min(5,1+attempts*0.2+memory.size*0.1);return c}
+function heuristic(a,b){return Math.abs(a.x-b.x)+Math.abs(a.y-b.y)}
+function neighbors(x,y){const list=[];if(x>0)list.push({x:x-1,y});if(x<size-1)list.push({x:x+1,y});if(y>0)list.push({x,y:y-1});if(y<size-1)list.push({x,y:y+1});return list}
+ function computePath(){const start={x:rat.x,y:rat.y};const goal={x:cheese.x,y:cheese.y};const open=[];const came=new Map();const g=new Map();const f=new Map();const sk=(p)=>key(p.x,p.y);open.push(start);g.set(sk(start),0);f.set(sk(start),heuristic(start,goal));const inOpen=(p)=>open.find(q=>q.x===p.x&&q.y===p.y);while(open.length){open.sort((a,b)=>f.get(sk(a))-f.get(sk(b)));const current=open.shift();if(current.x===goal.x&&current.y===goal.y){const path=[current];let cur=current;while(true){const prev=came.get(sk(cur));if(!prev)break;path.push(prev);cur=prev}path.reverse();return path}
+ const curG=g.get(sk(current));for(const n of neighbors(current.x,current.y)){const nk=sk(n);const tentative=curG+1+weightFor(n.x,n.y);if(!g.has(nk)||tentative<g.get(nk)){came.set(nk,current);g.set(nk,tentative);f.set(nk,tentative+heuristic(n,goal)+Math.random()*0.1);if(!inOpen(n))open.push(n)}}}
+ return []}
+function markPath(path){lastPath=path.slice();const cells=board.children;for(const p of path){const idx=p.y*size+p.x;cells[idx]?.classList.add('path-highlight')}}
+function clearPath(){const cells=board.children;for(let i=0;i<cells.length;i++){cells[i].classList.remove('path-highlight')}}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+async function runAttempt(){if(running)return;running=true;placeMode=false;placeBtn.classList.remove('ring-2','ring-red-300');clearPath();const path=computePath();markPath(path);for(let i=1;i<path.length;i++){const step=path[i];rat.x=step.x;rat.y=step.y;renderBoard();await sleep(Math.max(60,300-attempts*10));if(grid[rat.y][rat.x].trap){updateMemory(rat.x,rat.y);score+=100;attempts+=1;updateStats();await sleep(300);resetRat();renderBoard();running=false;return}}if(rat.x===cheese.x&&rat.y===cheese.y){score=Math.max(0,score-50);attempts+=1;updateStats();await sleep(300);resetRat()}renderBoard();running=false}
+function updateMemory(x,y){const k=key(x,y);const v=(memory.get(k)||0)+2;memory.set(k,v);for(const n of neighbors(x,y)){const nk=key(n.x,n.y);memory.set(nk,(memory.get(nk)||0)+1)}renderBoard()}
+function resetRat(){rat.x=0;rat.y=0}
+function updateStats(){scoreEl.textContent=String(score);attemptsEl.textContent=String(attempts);intelEl.textContent=intelLabel()}
+function intelLabel(){const a=attempts;const m=memory.size;if(a<3&&m===0)return 'Beginner';if(a<6)return 'Learner';if(a<10)return 'Intermediate';if(a<15)return 'Adaptable';return 'Expert'}
+function resetGame(){score=0;attempts=0;trapsPlaced=0;memory.clear();trapLimit=10;trapLimitEl.textContent=String(trapLimit);trapCountEl.textContent=String(trapsPlaced);resetRat();initGrid();lastPath=[];updateStats();renderBoard()}
+placeBtn.addEventListener('click',togglePlace)
+startBtn.addEventListener('click',runAttempt)
+resetBtn.addEventListener('click',resetGame)
+trapLimitEl.textContent=String(trapLimit)
+initGrid()
+updateStats()
+renderBoard()
+</script>
+</body>
+</html>
